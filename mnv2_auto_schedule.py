@@ -1,9 +1,15 @@
+import numpy as np
 
 import torch
 import torchvision
+from torchvision import transforms
 
 import tvm
 from tvm import relay
+from tvm.contrib.download import download_testdata
+from tvm.contrib import graph_executor
+
+from PIL import Image
 
 # load pretrained pytorch model
 def load_pretrained_model(model_name="mobilenet_v2"):
@@ -28,10 +34,86 @@ def build_relay_graph(mod, params, target:str="cuda"):
     with tvm.transform.PassContext(opt_level=3):
         lib = relay.build(mod, target=target, params=params)
 
+    return lib
+
+def load_test_image(image_url):
+    img_path = download_testdata(img_url, "cat.png", module="data")
+    img = Image.open(img_path).resize((224, 224))
+
+    my_preprocess = transforms.Compose(
+        [
+            transforms.Resize(256),
+            transforms.CenterCrop(224),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ]
+    )
+    img = my_preprocess(img)
+    input_tensor = np.expand_dims(img, 0)
+
+    return input_tensor
+
+def load_idx2key_dict():
+    synset_url = "".join(
+    [
+        "https://raw.githubusercontent.com/Cadene/",
+        "pretrained-models.pytorch/master/data/",
+        "imagenet_synsets.txt",
+    ]
+    )
+    synset_name = "imagenet_synsets.txt"
+    synset_path = download_testdata(synset_url, synset_name, module="data")
+    with open(synset_path) as f:
+        synsets = f.readlines()
+
+    synsets = [x.strip() for x in synsets]
+    splits = [line.split(" ") for line in synsets]
+    key_to_classname = {spl[0]: " ".join(spl[1:]) for spl in splits}
+
+    class_url = "".join(
+        [
+            "https://raw.githubusercontent.com/Cadene/",
+            "pretrained-models.pytorch/master/data/",
+            "imagenet_classes.txt",
+        ]
+    )
+    class_name = "imagenet_classes.txt"
+    class_path = download_testdata(class_url, class_name, module="data")
+    with open(class_path) as f:
+        class_id_to_key = f.readlines()
+
+    class_id_to_key = [x.strip() for x in class_id_to_key]
+
+    return class_id_to_key, key_to_classname
+
+def predict(input_tensor, lib, executor="tvm", input_name="input_tensor"):
+    dtype = "float32"
+    if executor == "tvm":
+        dev = tvm.cuda(0)
+        m = graph_executor.GraphModule(lib["default"](dev))
+        m.set_input(input_name, tvm.nd.array(input_tensor.astype(dtype)))
+        m.run()
+        output = m.get_output(0)
+
+    return output
+
+
+
 scripted_model = load_pretrained_model()
 
 # print(scripted_model)
 
 mod, params = import_pytorch_to_relay(scripted_model)
 
-build_relay_graph(mod, params, "nvidia/geforce-rtx-3070")
+lib = build_relay_graph(mod, params, "nvidia/geforce-rtx-3070")
+
+img_url = "https://github.com/dmlc/mxnet.js/blob/main/data/cat.png?raw=true"
+input_tensor = load_test_image(img_url)
+
+class_id_to_key, key_to_classname = load_idx2key_dict()
+
+tvm_output = predict(input_tensor, lib)
+top1_tvm = np.argmax(tvm_output.numpy()[0])
+tvm_class_key = class_id_to_key[top1_tvm]
+print("Relay top-1 id: {}, class name: {}".format(top1_tvm, key_to_classname[tvm_class_key]))
+
