@@ -12,4 +12,16 @@ cd build
 # set(USE_CUDA ON)
 cmake ..
 make -j12
+
+# you will get the built libtvm.so and libtvm_runtime.so library after previous step
+
+# optional: for virtual environment 
+apt-get install -y python3.10-venv
+python -m venv tvm
+# install pip3 for installing python package dependencies
+apt-get install -y python3-pip 
+
+# add tvm python package to python path
+export TVM_HOME=/path/to/tvm
+export PYTHONPATH=$TVM_HOME/python:${PYTHONPATH}
 ```
