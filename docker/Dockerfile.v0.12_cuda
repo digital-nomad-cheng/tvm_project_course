@@ -5,14 +5,21 @@ RUN apt-get update && apt-get upgrade -y
 # some tools
 RUN apt-get install -y git vim
 
-RUN git clone --recursive https://github.com/apache/tvm
+RUN git clone --recursive https://github.com/apache/tvm /home/
+RUN git checkout v0.12.0.rc0
 
 # pre-requisites for TVM on ubuntu
 RUN apt-get install -y python3 python3-dev python3-setuptools gcc libtinfo-dev zlib1g-dev build-essential cmake libedit-dev libxml2-dev
 
-RUN  apt-get install -y python3-pip
+# build tvm with cuda support
+RUN cd /home/tvm
+RUN mkdir build
+RUN cp cmake/config.cmake build && cd build
+RUN cmake -DUSE_CUDA ON ..
+RUN make -j12
 
 # install python dependencies
+RUN  apt-get install -y python3-pip
 # necessary dependencies
 RUN pip3 install --user numpy decorator attrs
 # tvmc dependencies
