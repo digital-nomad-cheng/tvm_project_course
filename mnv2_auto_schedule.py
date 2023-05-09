@@ -113,7 +113,7 @@ def schedule(mod, params, target:str="cuda", log_file="tune_log.json"):
     tune_option = auto_scheduler.TuningOptions(
             num_measure_trials=200,
             # runner=auto_scheduler.LocalRunner(repeat=10, enable_cpu_cache_flush=True),
-            runner=measure_ctx.runner(),
+            runner=measure_ctx.runner,
             measure_callbacks=[auto_scheduler.RecordToFile(log_file)],
             )
     tuner.tune(tune_option)
@@ -134,14 +134,15 @@ lib_navie = build_relay_graph(mod, params, "nvidia/geforce-rtx-3070")
 
 
 
-lib_build = schedule(mod, params, target="nvidia/geforce-rtx-3070")
+lib_sch = schedule(mod, params, target="nvidia/geforce-rtx-3070")
 
 img_url = "https://github.com/dmlc/mxnet.js/blob/main/data/cat.png?raw=true"
 input_tensor = load_test_image(img_url)
 
 class_id_to_key, key_to_classname = load_idx2key_dict()
 
-tvm_output = predict(input_tensor, lib)
+tvm_output = predict(input_tensor, lib_navie)
+tvm_output = predict(input_tensor, lib_sch)
 top1_tvm = np.argmax(tvm_output.numpy()[0])
 tvm_class_key = class_id_to_key[top1_tvm]
 print("Relay top-1 id: {}, class name: {}".format(top1_tvm, key_to_classname[tvm_class_key]))
