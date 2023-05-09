@@ -5,7 +5,7 @@ import torchvision
 from torchvision import transforms
 
 import tvm
-from tvm import relay
+from tvm import relay, auto_scheduler
 from tvm.contrib.download import download_testdata
 from tvm.contrib import graph_executor
 
@@ -86,7 +86,7 @@ def load_idx2key_dict():
 
     return class_id_to_key, key_to_classname
 
-def predict(input_tensor, lib, executor="tvm", input_name="input_tensor"):
+def predict(input_tensor, lib, executor="tvm", input_name="input_tensor", benchmark=True):
     dtype = "float32"
     if executor == "tvm":
         dev = tvm.cuda(0)
@@ -94,10 +94,35 @@ def predict(input_tensor, lib, executor="tvm", input_name="input_tensor"):
         m.set_input(input_name, tvm.nd.array(input_tensor.astype(dtype)))
         m.run()
         output = m.get_output(0)
+        if benchmark:
+            print(m.benchmark(dev, repeat=3, min_repeat_ms=500))
 
     return output
 
+def schedule(mod, params, target:str="cuda", log_file="tune_log.json"):
+    target = tvm.target.Target(target)
+    tasks, task_weights = auto_scheduler.extract_tasks(mod["main"], params, target)
+    print("total tasks:", len(tasks))
+    for i, task in enumerate(tasks):
+        print("================= Task %d (workload key: %s) ================" %(i, task.workload_key))
+        print(task.compute_dag)
+    measure_ctx = auto_scheduler.LocalRPCMeasureContext(repeat=1, min_repeat_ms=300, 
+            timeout=10)
 
+    tuner = auto_scheduler.TaskScheduler(tasks, task_weights, load_log_file=log_file) 
+    tune_option = auto_scheduler.TuningOptions(
+            num_measure_trials=200,
+            # runner=auto_scheduler.LocalRunner(repeat=10, enable_cpu_cache_flush=True),
+            runner=measure_ctx.runner(),
+            measure_callbacks=[auto_scheduler.RecordToFile(log_file)],
+            )
+    tuner.tune(tune_option)
+    # apply the best schedule record to module and build library
+    with auto_scheduler.ApplyHistoryBest(log_file):
+        with tvm.transform.PassContext(opt_level=3, config={"relay.backend.use_auto_scheduler": True}):
+            lib = relay.build(mod, target=target, params=params)
+    
+    return lib
 
 scripted_model = load_pretrained_model()
 
@@ -105,7 +130,11 @@ scripted_model = load_pretrained_model()
 
 mod, params = import_pytorch_to_relay(scripted_model)
 
-lib = build_relay_graph(mod, params, "nvidia/geforce-rtx-3070")
+lib_navie = build_relay_graph(mod, params, "nvidia/geforce-rtx-3070")
+
+
+
+lib_build = schedule(mod, params, target="nvidia/geforce-rtx-3070")
 
 img_url = "https://github.com/dmlc/mxnet.js/blob/main/data/cat.png?raw=true"
 input_tensor = load_test_image(img_url)
