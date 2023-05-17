@@ -1,3 +1,4 @@
+import time
 import numpy as np
 
 import torch
@@ -127,7 +128,11 @@ scripted_model = load_pretrained_model()
 
 mod, params = import_pytorch_to_relay(scripted_model)
 
+t0 = time.time()
 lib_navie = build_relay_graph(mod, params, "nvidia/geforce-rtx-3070")
+t1 = time.time()
+print("Total time for default building yolov8l:", t1 - t0)
+
 
 
 
