@@ -122,7 +122,7 @@ def schedule(mod, params, target:str="cuda", log_file="tune_log.json"):
     
     return lib
 
-scripted_model = load_pretrained_model()
+scripted_model = load_pretrained_model("yolov8s")
 
 # print(scripted_model)
 
@@ -131,12 +131,12 @@ mod, params = import_pytorch_to_relay(scripted_model)
 t0 = time.time()
 lib_navie = build_relay_graph(mod, params, "nvidia/geforce-rtx-3070")
 t1 = time.time()
-print("Total time for default building yolov8l:", t1 - t0)
+print("Total time for default building yolov8s:", t1 - t0)
 
-
-
-
-# lib_sch = schedule(mod, params, target="nvidia/geforce-rtx-3070")
+t0 = time.time()
+lib_sch = schedule(mod, params, target="nvidia/geforce-rtx-3070", log_file="work_dir/yolov8s_auto_tune_log.json")
+t1 = time.time()
+print("Total time for auto scheduling yolov8s:", t1 - t0)
 
 # img_url = "https://github.com/dmlc/mxnet.js/blob/main/data/cat.png?raw=true"
 # input_tensor = load_test_image(img_url)
