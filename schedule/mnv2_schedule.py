@@ -46,7 +46,7 @@ def build_relay_graph(mod, params, target:str="cuda"):
 
     return lib
 
-def load_test_image(image_url):
+def load_test_image(img_url):
     img_path = download_testdata(img_url, "cat.png", module="data")
     img = Image.open(img_path).resize((224, 224))
 
