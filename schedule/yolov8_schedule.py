@@ -62,7 +62,7 @@ def predict(input_tensor, lib, executor="tvm", input_name="input_tensor", benchm
             print(m.benchmark(dev, repeat=3, min_repeat_ms=500))
 
     return output
-
+    
 def schedule(mod, params, strategy="auto", target:str="cuda", work_dir="./work_dir", 
              log_file="tune_log.json"):
     target = tvm.target.Target(target)
@@ -111,14 +111,18 @@ if __name__ == "__main__":
     t1 = time.time()
     print("Total time for default building {} on {} is: {}".format(args.input_model, args.target, t1-t0))
     lib_navie.export_library("libs/{}_{}_default_build.so".format(args.input_model, args.target.replace("/", "_")))
-
+    """
+    
     t0 = time.time()
     lib_tensorrt = build_relay_graph(mod, params, args.target, use_tensorrt=True)
     t1 = time.time()
     print("Total time for default building {} with tensorrt support on {} is: {}".format(args.input_model, args.target, t1-t0))
     lib_tensorrt.export_library("libs/{}_{}_tensorrt_build.so".format(args.input_model, args.target.replace("/", "_")))
+    
+    input_tensor = np.random.rand(1, 3, 640, 640).astype(np.float32)
+    predict(input_tensor, lib_tensorrt, input_name="images", benchmark=True)
+    
     """
-
     log_file = "{}_{}_{}_tune_log.json".format(args.input_model, args.target.replace("/", "_"), args.strategy)
     t0 = time.time()
     lib_sch = schedule(mod, params, strategy=args.strategy, target=args.target, log_file=log_file)
@@ -129,8 +133,9 @@ if __name__ == "__main__":
     
     
     
-    # input_tensor = np.random.rand((1, 3, 640, 640))
-
+    
+    
     # tvm_output_navie = predict(input_tensor, lib_navie)
     # tvm_output_sch = predict(input_tensor, lib_sch)
     # np.testing.assert_allclose(tvm_output_navie.numpy(), tvm_output_sch.numpy(), rtol=1e-5)
+    """
