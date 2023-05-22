@@ -40,11 +40,9 @@ def import_pytorch_to_relay(scripted_model, input_name:str="input_tensor", input
 
 def build_relay_graph(mod, params, target:str="cuda", use_tensorrt=False):
     target = tvm.target.Target(target)
-    # dev = tvm.cuda(0)
-    # dev = tvm.device(str(target), 0)
     if use_tensorrt:
         mod = partition_for_tensorrt(mod, params)
-        with tvm.transform.PassContext(opt_level=4):
+        with tvm.transform.PassContext(opt_level=3):
             lib = relay.build(mod, target=target, params=params)
     else:
         with tvm.transform.PassContext(opt_level=3):
