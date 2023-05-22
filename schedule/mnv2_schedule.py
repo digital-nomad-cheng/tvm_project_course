@@ -17,6 +17,7 @@ from tvm import (
     auto_scheduler,
     meta_schedule as ms
 )
+from tvm.relay.op.contrib.tensorrt import partition_for_tensorrt
 from tvm.contrib.download import download_testdata
 from tvm.contrib import graph_executor
 
@@ -37,12 +38,17 @@ def import_pytorch_to_relay(scripted_model, input_name:str="input_tensor", input
     mod, params = relay.frontend.from_pytorch(scripted_model, shape_list)
     return mod, params
 
-def build_relay_graph(mod, params, target:str="cuda"):
+def build_relay_graph(mod, params, target:str="cuda", use_tensorrt=False):
     target = tvm.target.Target(target)
     # dev = tvm.cuda(0)
     # dev = tvm.device(str(target), 0)
-    with tvm.transform.PassContext(opt_level=3):
-        lib = relay.build(mod, target=target, params=params)
+    if use_tensorrt:
+        mod, config = partition_for_tensorrt(mod, params)
+        with tvm.transform.PassContext(opt_level=3, config={'relay.ext.tensorrt.options': config}):
+            lib = relay.build(mod, target=target, params=params)
+    else:
+        with tvm.transform.PassContext(opt_level=3):
+            lib = relay.build(mod, target=target, params=params)
 
     return lib
 
@@ -136,35 +142,48 @@ def schedule(mod, params, strategy="auto", target:str="cuda", work_dir="./work_d
                 lib = relay.build(mod, target=target, params=params)
         
         return lib
+    else:
+        raise NotImplementedError("Strategy {} is not implemented!".format(strategy))
     
 if __name__ == "__main__":
     parser = argparse.ArgumentParser("MobileNetv2 scheduler")
     parser.add_argument("-i", "--input_model", default="mobilenet_v2", type=str, help="Path to pretrained pytorch model")
     parser.add_argument("-t", "--target", default="nvidia/geforce-rtx-3070", type=str, help="Target string defined in tvm tag.cc")
-    
+    parser.add_argument("-s", "--strategy", default="auto", type=str, help=r"Strategy used for sheduling, can be 'meta', 'tensorrt' or 'auto'")
+    parser.print_help()
     args = parser.parse_args()
     
     scripted_model = load_pretrained_model(args.input_model)
 
     mod, params = import_pytorch_to_relay(scripted_model)
     
-    
     t0 = time.time()
     lib_navie = build_relay_graph(mod, params, args.target)
     t1 = time.time()
     print("Total time for default building {} on {} is: {}".format(args.input_model, args.target, t1-t0))
+    lib_navie.export_library("libs/{}_{}_default_build.so".format(args.input_model, args.target))
+    
+    t0 = time.time()
+    lib_tensorrt = build_relay_graph(mod, params, args.target)
+    t1 = time.time()
+    print("Total time for default building {} with tensorrt support on {} is: {}".format(args.input_model, args.target, t1-t0))
+    lib_tensorrt.export_library("libs/{}_{}_tensorrt_build.so".format(args.input_model, args.target))
+    
+    t0 = time.time()
+    lib_sch = schedule(mod, params, strategy=args.strategy, target=args.target)
+    t1 = time.time()
+    print("Total time for {} scheduling {} on {} is: {}".format(args.strategy, args.input_model, args.target, t1-t0))
+    lib_sch.export_library("libs/{}_{}_{}_schedule.so".format(args.input_model, args.target, args.strategy))
+    
+    img_url = "https://github.com/dmlc/mxnet.js/blob/main/data/cat.png?raw=true"
+    input_tensor = load_test_image(img_url)
 
+    class_id_to_key, key_to_classname = load_idx2key_dict()
 
-    # lib_sch = schedule(mod, params, target=arg.target)
-
-    # img_url = "https://github.com/dmlc/mxnet.js/blob/main/data/cat.png?raw=true"
-    # input_tensor = load_test_image(img_url)
-
-    # class_id_to_key, key_to_classname = load_idx2key_dict()
-
-    # tvm_output = predict(input_tensor, lib_navie)
-    # tvm_output = predict(input_tensor, lib_sch)
-    # top1_tvm = np.argmax(tvm_output.numpy()[0])
-    # tvm_class_key = class_id_to_key[top1_tvm]
-    # print("Relay top-1 id: {}, class name: {}".format(top1_tvm, key_to_classname[tvm_class_key]))
-
+    tvm_output_navie = predict(input_tensor, lib_navie)
+    tvm_output_sch = predict(input_tensor, lib_sch)
+    np.testing.assert_allclose(tvm_output_navie.numpy(), tvm_output_sch.numpy(), rtol=1e-5)
+    
+    top1_tvm = np.argmax(tvm_output_sch.numpy()[0])
+    tvm_class_key = class_id_to_key[top1_tvm]
+    print("Relay top-1 id: {}, class name: {}".format(top1_tvm, key_to_classname[tvm_class_key]))
