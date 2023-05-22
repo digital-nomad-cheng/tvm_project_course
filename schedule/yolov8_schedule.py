@@ -105,21 +105,20 @@ if __name__ == "__main__":
 
     mod, params = import_onnx_to_relay(scripted_model)
     
-    """
+    input_tensor = np.random.rand(1, 3, 640, 640).astype(np.float32)
+    
     t0 = time.time()
     lib_navie = build_relay_graph(mod, params, args.target)
     t1 = time.time()
     print("Total time for default building {} on {} is: {}".format(args.input_model, args.target, t1-t0))
     lib_navie.export_library("libs/{}_{}_default_build.so".format(args.input_model, args.target.replace("/", "_")))
-    """
-    
+    predict(input_tensor, lib_navie, input_name="images", benchmark=True)
+     
     t0 = time.time()
     lib_tensorrt = build_relay_graph(mod, params, args.target, use_tensorrt=True)
     t1 = time.time()
     print("Total time for default building {} with tensorrt support on {} is: {}".format(args.input_model, args.target, t1-t0))
     lib_tensorrt.export_library("libs/{}_{}_tensorrt_build.so".format(args.input_model, args.target.replace("/", "_")))
-    
-    input_tensor = np.random.rand(1, 3, 640, 640).astype(np.float32)
     predict(input_tensor, lib_tensorrt, input_name="images", benchmark=True)
     
     """
