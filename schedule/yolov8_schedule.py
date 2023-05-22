@@ -41,8 +41,8 @@ def build_relay_graph(mod, params, target:str="cuda", use_tensorrt=False):
     # dev = tvm.cuda(0)
     # dev = tvm.device(str(target), 0)
     if use_tensorrt:
-        mod, config = partition_for_tensorrt(mod, params)
-        with tvm.transform.PassContext(opt_level=3, config={'relay.ext.tensorrt.options': config}):
+        mod = partition_for_tensorrt(mod, params)
+        with tvm.transform.PassContext(opt_level=3):
             lib = relay.build(mod, target=target, params=params)
     else:
         with tvm.transform.PassContext(opt_level=3):
@@ -113,7 +113,7 @@ if __name__ == "__main__":
     lib_navie.export_library("libs/{}_{}_default_build.so".format(args.input_model, args.target.replace("/", "_")))
 
     t0 = time.time()
-    lib_tensorrt = build_relay_graph(mod, params, args.target)
+    lib_tensorrt = build_relay_graph(mod, params, args.target, use_tensorrt=True)
     t1 = time.time()
     print("Total time for default building {} with tensorrt support on {} is: {}".format(args.input_model, args.target, t1-t0))
     lib_tensorrt.export_library("libs/{}_{}_tensorrt_build.so".format(args.input_model, args.target.replace("/", "_")))
