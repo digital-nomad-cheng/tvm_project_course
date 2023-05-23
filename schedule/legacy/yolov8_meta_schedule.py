@@ -1,28 +1,34 @@
-import time
+# ref: https://gist.github.com/mkatanbaf/1a7e814e4cc757ea9babfcb013efe124
+from types import MappingProxyType
+
 import numpy as np
 
 import torch
 import torchvision
 from torchvision import transforms
-import onnx 
 
 import tvm
 from tvm import relay, auto_scheduler
+from tvm import meta_schedule as ms
 from tvm.contrib.download import download_testdata
 from tvm.contrib import graph_executor
 
 from PIL import Image
 
 # load pretrained pytorch model
-def load_pretrained_model(model_name="yolov8l"):
-    onnx_model = onnx.load_model(model_name+".onnx")
+def load_pretrained_model(model_name="mobilenet_v2"):
+    model = getattr(torchvision.models, model_name)(pretrained=True)
+    model = model.eval()
 
-    return onnx_model 
+    input_shape = [1, 3, 224, 224]
+    input_tensor = torch.randn(input_shape)
+    scripted_model = torch.jit.trace(model, input_tensor).eval()
+    return scripted_model
 
-def import_pytorch_to_relay(scripted_model, input_name:str="images", input_shape=[1, 3, 640, 640]):
+def import_pytorch_to_relay(scripted_model, input_name:str="input_tensor", input_shape=[1, 3, 224, 224]):
 
-    shape_dict = {input_name: input_shape}
-    mod, params = relay.frontend.from_onnx(scripted_model, shape_dict)
+    shape_list = [(input_name, input_shape)]
+    mod, params = relay.frontend.from_pytorch(scripted_model, shape_list)
     return mod, params
 
 def build_relay_graph(mod, params, target:str="cuda"):
@@ -97,55 +103,62 @@ def predict(input_tensor, lib, executor="tvm", input_name="input_tensor", benchm
 
     return output
 
-def schedule(mod, params, target:str="cuda", log_file="tune_log.json"):
+def meta_schedule(mod, params, target:str="cuda", work_dir='./work_dir', log_file="tune_log.json"):
     target = tvm.target.Target(target)
-    tasks, task_weights = auto_scheduler.extract_tasks(mod["main"], params, target)
-    print("total tasks:", len(tasks))
-    for i, task in enumerate(tasks):
-        print("================= Task %d (workload key: %s) ================" %(i, task.workload_key))
-        print(task.compute_dag)
-    measure_ctx = auto_scheduler.LocalRPCMeasureContext(repeat=1, min_repeat_ms=300, 
-            timeout=10)
+    
+    with ms.Profiler() as profiler:
+        rt_db: tvm.runtime.Module = ms.relay_integration.tune_relay(
+            mod=mod,
+            params=params,
+            target=target,
+            strategy="evolutionary",
+            num_trials_per_iter=32,
+            max_trials_per_task=32,
+            max_trials_global=1000,
+            work_dir=work_dir,
+        )
+        
+        lib: tvm.runtime.Module = ms.relay_integration.compile_relay(
+            database=rt_db,
+            mod=mod,
+            target=target,
+            params=params,
+            pass_config=MappingProxyType({
+                "relay.backend.use_meta_schedule": True,
+                "relay.backend.tir_converter": "default",
+                "tir.disable_vectorize": True,
+                }
+            ),
+        )
 
-    tuner = auto_scheduler.TaskScheduler(tasks, task_weights, load_log_file=log_file) 
-    tune_option = auto_scheduler.TuningOptions(
-            num_measure_trials=200,
-            # runner=auto_scheduler.LocalRunner(repeat=10, enable_cpu_cache_flush=True),
-            runner=measure_ctx.runner,
-            measure_callbacks=[auto_scheduler.RecordToFile(log_file)],
-            )
-    tuner.tune(tune_option)
-    # apply the best schedule record to module and build library
-    with auto_scheduler.ApplyHistoryBest(log_file):
-        with tvm.transform.PassContext(opt_level=3, config={"relay.backend.use_auto_scheduler": True}):
-            lib = relay.build(mod, target=target, params=params)
+    print(profiler.table())
     
     return lib
 
-scripted_model = load_pretrained_model("yolov8s")
+scripted_model = load_pretrained_model()
 
 # print(scripted_model)
 
 mod, params = import_pytorch_to_relay(scripted_model)
 
-t0 = time.time()
 lib_navie = build_relay_graph(mod, params, "nvidia/geforce-rtx-3070")
-t1 = time.time()
-print("Total time for default building yolov8s:", t1 - t0)
 
-t0 = time.time()
-lib_sch = schedule(mod, params, target="nvidia/geforce-rtx-3070", log_file="work_dir/yolov8s_auto_tune_log.json")
-t1 = time.time()
-print("Total time for auto scheduling yolov8s:", t1 - t0)
 
-# img_url = "https://github.com/dmlc/mxnet.js/blob/main/data/cat.png?raw=true"
-# input_tensor = load_test_image(img_url)
+lib_sch = meta_schedule(mod, params, target="nvidia/geforce-rtx-3070")
 
-# class_id_to_key, key_to_classname = load_idx2key_dict()
+img_url = "https://github.com/dmlc/mxnet.js/blob/main/data/cat.png?raw=true"
+input_tensor = load_test_image(img_url)
 
-# tvm_output = predict(input_tensor, lib_navie)
-# tvm_output = predict(input_tensor, lib_sch)
-# top1_tvm = np.argmax(tvm_output.numpy()[0])
-# tvm_class_key = class_id_to_key[top1_tvm]
-# print("Relay top-1 id: {}, class name: {}".format(top1_tvm, key_to_classname[tvm_class_key]))
+class_id_to_key, key_to_classname = load_idx2key_dict()
+
+tvm_output_navie = predict(input_tensor, lib_navie)
+tvm_output_meta = predict(input_tensor, lib_sch)
+if np.allclose(tvm_output_navie.numpy(), tvm_output_meta.numpy(), rtol=1e-4, atol=2e-4):
+    print("PASS")
+else:
+    print("FAIL")
+
+top1_tvm = np.argmax(tvm_output_meta.numpy()[0])
+tvm_class_key = class_id_to_key[top1_tvm]
+print("Relay top-1 id: {}, class name: {}".format(top1_tvm, key_to_classname[tvm_class_key]))
 
