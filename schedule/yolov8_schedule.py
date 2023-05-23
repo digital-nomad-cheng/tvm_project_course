@@ -59,7 +59,8 @@ def predict(input_tensor, lib, executor="tvm", input_name="input_tensor", benchm
         m.run()
         output = m.get_output(0)
         if benchmark:
-            print(m.benchmark(dev, repeat=3, min_repeat_ms=500))
+            m.benchmark(dev, repeat=2, min_repeat_ms=500)
+            print(m.benchmark(dev, repeat=5, min_repeat_ms=500))
 
     return output
     
@@ -113,7 +114,7 @@ if __name__ == "__main__":
     print("Total time for default building {} on {} is: {}".format(args.input_model, args.target, t1-t0))
     lib_navie.export_library("libs/{}_{}_default_build.so".format(args.input_model, args.target.replace("/", "_")))
     predict(input_tensor, lib_navie, input_name="images", benchmark=True)
-     
+      
     t0 = time.time()
     lib_tensorrt = build_relay_graph(mod, params, args.target, use_tensorrt=True)
     t1 = time.time()

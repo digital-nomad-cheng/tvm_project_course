@@ -109,7 +109,9 @@ def predict(input_tensor, lib, executor="tvm", input_name="input_tensor", benchm
         m.run()
         output = m.get_output(0)
         if benchmark:
-            print(m.benchmark(dev, repeat=3, min_repeat_ms=500))
+            # warmup for tensorrt
+            print(m.benchmark(dev, repeat=2, min_repeat_ms=500))
+            print(m.benchmark(dev, repeat=5, min_repeat_ms=500))
 
     return output
 
@@ -151,6 +153,9 @@ if __name__ == "__main__":
     parser.print_help()
     args = parser.parse_args()
     
+    img_url = "https://github.com/dmlc/mxnet.js/blob/main/data/cat.png?raw=true"
+    input_tensor = load_test_image(img_url)
+    
     scripted_model = load_pretrained_model(args.input_model)
 
     mod, params = import_pytorch_to_relay(scripted_model)
@@ -160,28 +165,25 @@ if __name__ == "__main__":
     t1 = time.time()
     print("Total time for default building {} on {} is: {}".format(args.input_model, args.target, t1-t0))
     lib_navie.export_library("libs/{}_{}_default_build.so".format(args.input_model, args.target.replace("/", "_")))
+    tvm_output_navie = predict(input_tensor, lib_navie)
     
     t0 = time.time()
     lib_tensorrt = build_relay_graph(mod, params, args.target, use_tensorrt=True)
     t1 = time.time()
     print("Total time for default building {} with tensorrt support on {} is: {}".format(args.input_model, args.target, t1-t0))
     lib_tensorrt.export_library("libs/{}_{}_tensorrt_build.so".format(args.input_model, args.target.replace("/","_")))
+    tvm_output_sch = predict(input_tensor, lib_tensorrt)
     
     t0 = time.time()
     lib_sch = schedule(mod, params, strategy=args.strategy, target=args.target)
     t1 = time.time()
     print("Total time for {} scheduling {} on {} is: {}".format(args.strategy, args.input_model, args.target, t1-t0))
     lib_sch.export_library("libs/{}_{}_{}_schedule.so".format(args.input_model, args.target, args.strategy))
+    tvm_output_sch = predict(input_tensor, lib_sch)
     
-    img_url = "https://github.com/dmlc/mxnet.js/blob/main/data/cat.png?raw=true"
-    input_tensor = load_test_image(img_url)
-
     class_id_to_key, key_to_classname = load_idx2key_dict()
 
-    tvm_output_navie = predict(input_tensor, lib_navie)
-    tvm_output_sch = predict(input_tensor, lib_sch)
     np.testing.assert_allclose(tvm_output_navie.numpy(), tvm_output_sch.numpy(), rtol=1e-5)
-    
     top1_tvm = np.argmax(tvm_output_sch.numpy()[0])
     tvm_class_key = class_id_to_key[top1_tvm]
     print("Relay top-1 id: {}, class name: {}".format(top1_tvm, key_to_classname[tvm_class_key]))
