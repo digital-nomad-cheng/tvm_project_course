@@ -178,7 +178,7 @@ if __name__ == "__main__":
     lib_sch = schedule(mod, params, strategy=args.strategy, target=args.target)
     t1 = time.time()
     print("Total time for {} scheduling {} on {} is: {}".format(args.strategy, args.input_model, args.target, t1-t0))
-    lib_sch.export_library("libs/{}_{}_{}_schedule.so".format(args.input_model, args.target, args.strategy))
+    lib_sch.export_library("libs/{}_{}_{}_schedule.so".format(args.input_model, args.target.replace("/", "_"), args.strategy))
     tvm_output_sch = predict(input_tensor, lib_sch)
     
     class_id_to_key, key_to_classname = load_idx2key_dict()
