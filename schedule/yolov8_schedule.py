@@ -59,7 +59,7 @@ def predict(input_tensor, lib, executor="tvm", input_name="input_tensor", benchm
         m.run()
         output = m.get_output(0)
         if benchmark:
-            m.benchmark(dev, repeat=2, min_repeat_ms=500)
+            print(m.benchmark(dev, repeat=2, min_repeat_ms=500))
             print(m.benchmark(dev, repeat=5, min_repeat_ms=500))
 
     return output
@@ -79,7 +79,7 @@ def schedule(mod, params, strategy="auto", target:str="cuda", work_dir="./work_d
 
         tuner = auto_scheduler.TaskScheduler(tasks, task_weights, load_log_file=log_file) 
         tune_option = auto_scheduler.TuningOptions(
-                num_measure_trials=200,
+                num_measure_trials=10000,
                 # runner=auto_scheduler.LocalRunner(repeat=10, enable_cpu_cache_flush=True),
                 runner=measure_ctx.runner,
                 measure_callbacks=[auto_scheduler.RecordToFile(log_file)],
@@ -122,20 +122,14 @@ if __name__ == "__main__":
     lib_tensorrt.export_library("libs/{}_{}_tensorrt_build.so".format(args.input_model, args.target.replace("/", "_")))
     predict(input_tensor, lib_tensorrt, input_name="images", benchmark=True)
     
-    """
     log_file = "{}_{}_{}_tune_log.json".format(args.input_model, args.target.replace("/", "_"), args.strategy)
     t0 = time.time()
     lib_sch = schedule(mod, params, strategy=args.strategy, target=args.target, log_file=log_file)
     t1 = time.time()
     print("Total time for {} scheduling {} on {} is: {}".format(args.strategy, args.input_model, args.target, t1-t0))
-    lib_sch.export_library("libs/{}_{}_{}_schedule.so".format(args.input_model, args.target, args.strategy))
+    lib_sch.export_library("libs/{}_{}_{}_schedule.so".format(args.input_model, args.target.replace("/", "_"), args.strategy))
+    predict(input_tensor, lib_sch, input_name="images", benchmark=True)
     
-    
-    
-    
-    
-    
-    # tvm_output_navie = predict(input_tensor, lib_navie)
-    # tvm_output_sch = predict(input_tensor, lib_sch)
-    # np.testing.assert_allclose(tvm_output_navie.numpy(), tvm_output_sch.numpy(), rtol=1e-5)
-    """
+    tvm_output_navie = predict(input_tensor, lib_navie)
+    tvm_output_sch = predict(input_tensor, lib_sch)
+    np.testing.assert_allclose(tvm_output_navie.numpy(), tvm_output_sch.numpy(), rtol=1e-5)
