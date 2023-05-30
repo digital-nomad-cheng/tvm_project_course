@@ -18,6 +18,12 @@ from tvm import (
     meta_schedule as ms
 )
 from tvm.relay.op.contrib.tensorrt import partition_for_tensorrt
+from tvm.relay.op.contrib.cutlass import partition_for_cutlass
+from tvm.contrib.cutlass import (
+    has_cutlass,
+    num_cutlass_partitions,
+    finalize_modules
+)
 from tvm.contrib.download import download_testdata
 from tvm.contrib import graph_executor
 
@@ -38,13 +44,39 @@ def import_pytorch_to_relay(scripted_model, input_name:str="input_tensor", input
     mod, params = relay.frontend.from_pytorch(scripted_model, shape_list)
     return mod, params
 
-def build_relay_graph(mod, params, target:str="cuda", use_tensorrt=False):
+def build_relay_graph(mod, params, target:str="cuda", codegen=None):
     target = tvm.target.Target(target)
-    if use_tensorrt:
+    if codegen == "tensorrt":
+        print("Use tensorrt codegen...")
         mod = partition_for_tensorrt(mod, params)
         with tvm.transform.PassContext(opt_level=3):
             lib = relay.build(mod, target=target, params=params)
+    elif codegen == "cutlass":
+        print("Use cutlass codegen...")
+        host = tvm.target.Target("llvm")
+        cuda = tvm.target.Target("cuda", host=host)
+        cutlass = tvm.target.Target(
+            {
+                "kind": "cutlass",
+                "sm": 86,
+                "use_3xtf32": True,
+                "split_k_slices": [1],
+                "profile_all_alignments": False,
+                "find_first_valid": True,
+                "use_multiprocessing": True,
+                "use_fast_math": False,
+                "tmp_dir": "./tmp",
+            },
+            host=host,
+        )
+        mod = partition_for_cutlass(mod, params)
+        num_partition = num_cutlass_partitions(mod)
+        with tvm.transform.PassContext(opt_level=3):
+            lib = relay.build(mod, target=target, params=params)
+        lib = finalize_modules(lib)
+        assert num_partition != 0, "Partition for cutlass failed!"
     else:
+        print("Use default codegen...")
         with tvm.transform.PassContext(opt_level=3):
             lib = relay.build(mod, target=target, params=params)
 
@@ -150,6 +182,9 @@ if __name__ == "__main__":
     parser.add_argument("-i", "--input_model", default="mobilenet_v2", type=str, help="Path to pretrained pytorch model")
     parser.add_argument("-t", "--target", default="nvidia/geforce-rtx-3070", type=str, help="Target string defined in tvm tag.cc")
     parser.add_argument("-s", "--strategy", default="auto", type=str, help=r"Strategy used for sheduling, can be 'meta' or 'auto'")
+    parser.add_argument("-c", "--codegen", default="cutlass", type=str, help=r"Codegen used for dispatch operators, can be 'tensorrt', 'cutlass', or 'None'")
+    parser.add_argument("--use_scheduler", default=False, type=bool, help="Whether to turn on scheduler, off by default.")
+
     parser.print_help()
     args = parser.parse_args()
     
@@ -168,19 +203,29 @@ if __name__ == "__main__":
     tvm_output_navie = predict(input_tensor, lib_navie)
     
     t0 = time.time()
-    lib_tensorrt = build_relay_graph(mod, params, args.target, use_tensorrt=True)
+    lib_tensorrt = build_relay_graph(mod, params, args.target, codegen="tensorrt")
     t1 = time.time()
     print("Total time for default building {} with tensorrt support on {} is: {}".format(args.input_model, args.target, t1-t0))
     lib_tensorrt.export_library("libs/{}_{}_tensorrt_build.so".format(args.input_model, args.target.replace("/","_")))
-    tvm_output_sch = predict(input_tensor, lib_tensorrt)
-    
+    tvm_output_tensorrt = predict(input_tensor, lib_tensorrt)
+
     t0 = time.time()
-    lib_sch = schedule(mod, params, strategy=args.strategy, target=args.target)
+    lib_cutlass = build_relay_graph(mod, params, args.target, codegen="cutlass")
     t1 = time.time()
-    print("Total time for {} scheduling {} on {} is: {}".format(args.strategy, args.input_model, args.target, t1-t0))
-    lib_sch.export_library("libs/{}_{}_{}_schedule.so".format(args.input_model, args.target.replace("/", "_"), args.strategy))
-    tvm_output_sch = predict(input_tensor, lib_sch)
+    print("Total time for default building {} with cutlass support on {} is: {}".format(args.input_model, args.target, t1-t0))
+    lib_cutlass.export_library("libs/{}_{}_cutlass_build.so".format(args.input_model, args.target.replace("/","_")))
+    tvm_output_cutlass = predict(input_tensor, lib_cutlass)
     
+    if args.use_scheduler:
+        t0 = time.time()
+        lib_sch = schedule(mod, params, strategy=args.strategy, target=args.target)
+        t1 = time.time()
+        print("Total time for {} scheduling {} on {} is: {}".format(args.strategy, args.input_model, args.target, t1-t0))
+        lib_sch.export_library("libs/{}_{}_{}_schedule.so".format(args.input_model, args.target.replace("/", "_"), args.strategy))
+        tvm_output_sch = predict(input_tensor, lib_sch)
+    else:
+        tvm_output_sch = tvm_output_cutlass
+
     class_id_to_key, key_to_classname = load_idx2key_dict()
 
     np.testing.assert_allclose(tvm_output_navie.numpy(), tvm_output_sch.numpy(), rtol=1e-5)
