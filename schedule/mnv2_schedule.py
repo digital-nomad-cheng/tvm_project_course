@@ -17,6 +17,7 @@ from tvm import (
     auto_scheduler,
     meta_schedule as ms
 )
+from tvm.relay.transform import ToMixedPrecision
 from tvm.relay.op.contrib.tensorrt import partition_for_tensorrt
 from tvm.relay.op.contrib.cutlass import partition_for_cutlass
 from tvm.contrib.cutlass import (
@@ -53,26 +54,35 @@ def build_relay_graph(mod, params, target:str="cuda", codegen=None):
             lib = relay.build(mod, target=target, params=params)
     elif codegen == "cutlass":
         print("Use cutlass codegen...")
+        def convert_conv2d_layout(mod, desired_layouts):
+            with tvm.transform.PassContext(opt_level=3):
+                seq = tvm.transform.Sequential([relay.transform.ConvertLayout(desired_layouts)])
+                return seq(mod)
+        mod = convert_conv2d_layout(mod, {"nn.conv2d": ["NHWC", "OHWI"]})
         host = tvm.target.Target("llvm")
         cuda = tvm.target.Target("cuda", host=host)
         cutlass = tvm.target.Target(
             {
                 "kind": "cutlass",
-                "sm": 86,
+                "sm": 80,
                 "use_3xtf32": True,
                 "split_k_slices": [1],
                 "profile_all_alignments": False,
                 "find_first_valid": True,
                 "use_multiprocessing": True,
-                "use_fast_math": False,
+                "use_fast_math": True,
                 "tmp_dir": "./tmp",
             },
             host=host,
         )
+        print(mod)
         mod = partition_for_cutlass(mod, params)
+        print(mod)
+        mod = convert_conv2d_layout(mod, {"nn.conv2d": ["NHWC", "default"]})
         num_partition = num_cutlass_partitions(mod)
+        print("num of partition using cutlass:", num_partition)
         with tvm.transform.PassContext(opt_level=3):
-            lib = relay.build(mod, target=target, params=params)
+            lib = relay.build(mod, target=[cuda, cutlass], params=params)
         lib = finalize_modules(lib)
         assert num_partition != 0, "Partition for cutlass failed!"
     else:
@@ -194,27 +204,28 @@ if __name__ == "__main__":
     scripted_model = load_pretrained_model(args.input_model)
 
     mod, params = import_pytorch_to_relay(scripted_model)
-    
+    mod = ToMixedPrecision("float16")(mod)
+   
     t0 = time.time()
     lib_navie = build_relay_graph(mod, params, args.target)
     t1 = time.time()
     print("Total time for default building {} on {} is: {}".format(args.input_model, args.target, t1-t0))
     lib_navie.export_library("libs/{}_{}_default_build.so".format(args.input_model, args.target.replace("/", "_")))
     tvm_output_navie = predict(input_tensor, lib_navie)
-    
+   
     t0 = time.time()
     lib_tensorrt = build_relay_graph(mod, params, args.target, codegen="tensorrt")
     t1 = time.time()
     print("Total time for default building {} with tensorrt support on {} is: {}".format(args.input_model, args.target, t1-t0))
     lib_tensorrt.export_library("libs/{}_{}_tensorrt_build.so".format(args.input_model, args.target.replace("/","_")))
     tvm_output_tensorrt = predict(input_tensor, lib_tensorrt)
-
+  
     t0 = time.time()
     lib_cutlass = build_relay_graph(mod, params, args.target, codegen="cutlass")
     t1 = time.time()
     print("Total time for default building {} with cutlass support on {} is: {}".format(args.input_model, args.target, t1-t0))
-    lib_cutlass.export_library("libs/{}_{}_cutlass_build.so".format(args.input_model, args.target.replace("/","_")))
     tvm_output_cutlass = predict(input_tensor, lib_cutlass)
+    # lib_cutlass.export_library("libs/{}_{}_cutlass_build.so".format(args.input_model, args.target.replace("/","_")))
     
     if args.use_scheduler:
         t0 = time.time()
