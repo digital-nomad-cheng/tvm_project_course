@@ -1,27 +1,8 @@
-# tvm_study
-## build
-1. build with cuda support
-```
-git clone --recursive https://github.com/apache/tvm
-# install pre-requisties
-apt-get install -y python3 python3-dev python3-setuptools gcc libtinfo-dev zlib1g-dev build-essential cmake libedit-dev libxml2-dev
-mkdir build
-cp cmake/config.cmake build
-cd build
-# edit build/config.cmake to turn on CUDA support
-# set(USE_CUDA ON)
-cmake ..
-make -j12
-
-# you will get the built libtvm.so and libtvm_runtime.so library after previous step
-
-# optional: for virtual environment 
-apt-get install -y python3.10-venv
-python -m venv tvm
-# install pip3 for installing python package dependencies
-apt-get install -y python3-pip 
-
-# add tvm python package to python path
-export TVM_HOME=/path/to/tvm
-export PYTHONPATH=$TVM_HOME/python:${PYTHONPATH}
-```
+# tvm_project_course
+Code for the project course on tvm. The goal of the course is to get familiar with tvm first. Then try to implement a new optimization for nvidia gpu using it and do some benchmarks from time, power consumption, and memory footprint perspectives. 
+## Organizations
++ docker: dockerfile and scripts for setting up development environment
++ schedule: benchmark different strategies in tvm for optimizing mobilenet_v2 and yolov8
++ relay: relay related learning materials
++ howto: scripts from official docs
++ tvmcon2023: scripts from tvm conference 2023
