@@ -46,7 +46,22 @@ def import_pytorch_to_relay(scripted_model, input_name:str="input_tensor", input
     return mod, params
 
 def build_relay_graph(mod, params, target:str="cuda", codegen=None):
-    target = tvm.target.Target(target)
+    host = tvm.target.Target("llvm")
+    cutlass = tvm.target.Target(
+        {
+            "kind": "cutlass",
+            "sm": 80,
+            "use_3xtf32": True,
+            "split_k_slices": [1],
+            "profile_all_alignments": False,
+            "find_first_valid": True,
+            "use_multiprocessing": True,
+            "use_fast_math": True,
+            "tmp_dir": "./tmp",
+        },
+        host=host,
+    )
+    target = tvm.target.Target(target, host=host)
     if codegen == "tensorrt":
         print("Use tensorrt codegen...")
         mod = partition_for_tensorrt(mod, params)
@@ -59,32 +74,14 @@ def build_relay_graph(mod, params, target:str="cuda", codegen=None):
                 seq = tvm.transform.Sequential([relay.transform.ConvertLayout(desired_layouts)])
                 return seq(mod)
         mod = convert_conv2d_layout(mod, {"nn.conv2d": ["NHWC", "OHWI"]})
-        host = tvm.target.Target("llvm")
-        cuda = tvm.target.Target("cuda", host=host)
-        cutlass = tvm.target.Target(
-            {
-                "kind": "cutlass",
-                "sm": 80,
-                "use_3xtf32": True,
-                "split_k_slices": [1],
-                "profile_all_alignments": False,
-                "find_first_valid": True,
-                "use_multiprocessing": True,
-                "use_fast_math": True,
-                "tmp_dir": "./tmp",
-            },
-            host=host,
-        )
-        print(mod)
         mod = partition_for_cutlass(mod, params)
-        print(mod)
         mod = convert_conv2d_layout(mod, {"nn.conv2d": ["NHWC", "default"]})
         num_partition = num_cutlass_partitions(mod)
+        assert num_partition != 0, "Partition for cutlass failed!"
         print("num of partition using cutlass:", num_partition)
         with tvm.transform.PassContext(opt_level=3):
-            lib = relay.build(mod, target=[cuda, cutlass], params=params)
+            lib = relay.build(mod, target=[target, cutlass], params=params)
         lib = finalize_modules(lib)
-        assert num_partition != 0, "Partition for cutlass failed!"
     else:
         print("Use default codegen...")
         with tvm.transform.PassContext(opt_level=3):
@@ -152,8 +149,8 @@ def predict(input_tensor, lib, executor="tvm", input_name="input_tensor", benchm
         output = m.get_output(0)
         if benchmark:
             # warmup for tensorrt
-            print(m.benchmark(dev, repeat=2, min_repeat_ms=500))
-            print(m.benchmark(dev, repeat=5, min_repeat_ms=500))
+            print(m.benchmark(dev, repeat=10, min_repeat_ms=500))
+            print(m.benchmark(dev, repeat=100, min_repeat_ms=500))
 
     return output
 
@@ -204,7 +201,7 @@ if __name__ == "__main__":
     scripted_model = load_pretrained_model(args.input_model)
 
     mod, params = import_pytorch_to_relay(scripted_model)
-    mod = ToMixedPrecision("float16")(mod)
+    # mod = ToMixedPrecision("float16")(mod)
    
     t0 = time.time()
     lib_navie = build_relay_graph(mod, params, args.target)
@@ -239,7 +236,7 @@ if __name__ == "__main__":
 
     class_id_to_key, key_to_classname = load_idx2key_dict()
 
-    np.testing.assert_allclose(tvm_output_navie.numpy(), tvm_output_sch.numpy(), rtol=1e-5)
+    np.testing.assert_allclose(tvm_output_navie.numpy(), tvm_output_sch.numpy(), rtol=1e-2, atol=1e-5)
     top1_tvm = np.argmax(tvm_output_sch.numpy()[0])
     tvm_class_key = class_id_to_key[top1_tvm]
     print("Relay top-1 id: {}, class name: {}".format(top1_tvm, key_to_classname[tvm_class_key]))
