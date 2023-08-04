@@ -1,0 +1,25 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "attach",
+            "name": "Attach-TVM",
+            "pid": "${command:pickMyProcess}" // use ${command:pickProcess} to pick other user's proecss
+        },
+        {
+            "name": "PyTest",
+            "type": "python",
+            "stopOnEntry": false,
+            "request": "launch",
+            // "module": "pytest",
+            "args": ["-sv"],
+            "program": "relay_simplify_inference.py",
+            "cwd": "/home/work/tvm_project_course/relay",  // "/home/tvm/tests/python/contrib/test",
+            "preLaunchTask": "myShellCommand",
+            "env": {},
+            "envFile": "${workspaceFolder}/.env"
+        }
+    ],
+ 
+}
