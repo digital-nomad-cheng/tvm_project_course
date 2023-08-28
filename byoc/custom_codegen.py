@@ -11,5 +11,9 @@ mod = relay.transform.AnnotateTarget(["tvmcon23"])(mod)
 mod = relay.transform.MergeCompilerRegions()(mod)
 mod = relay.transform.PartitionGraph()(mod)
 print("begin to export library...")
+target="llvm"
 with tvm.transform.PassContext(opt_level=3):
-    mod = relay.build(mod, target="llvm")
+    lib = relay.build(mod, target=target, params=params)
+
+
+lib.export_library('simple_model_byoc.so')
