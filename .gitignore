@@ -2,3 +2,7 @@
 *.onnx
 *.pt
 *.ncu-rep
+*pytorch_model*
+*__pycache__*
+*tmp*
+schedule/libs/*
