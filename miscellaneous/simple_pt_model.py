@@ -30,7 +30,7 @@ class ConvBNReLU(nn.Module):
                 nn.init.constant_(m.bias, 0)
 
 torch.set_grad_enabled(False)
-input_shape = [1, 3, 8, 8]
+input_shape = [1, 3, 64, 64]
 input_data = torch.rand(input_shape).float()
 pt_model = ConvBNReLU().eval().float()
 torch.onnx.export(pt_model, input_data,"simple_model.onnx", input_names=["input"], output_names=["output"])
