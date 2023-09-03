@@ -27,8 +27,9 @@ if model_name == "max_pool2d":
     cross_compile = 'aarch64-linux-gnu-g++'
     lib.export_library(lib_path, cc=cross_compile)
 elif model_name == "simple":
-    onnx_model = onnx.load("/home/work/tvm_project_course/byoc/simple_model.onnx")
+    onnx_model = onnx.load("/home/work/tvm_project_course/miscellaneous/simple_model.onnx")
     mod, params = relay.frontend.from_onnx(onnx_model)
     mod.show()
     from tvm.relay.op.contrib.arm_compute_lib import partition_for_arm_compute_lib
-    mod = partition_for_arm_compute_lib(mod)
+    mod = partition_for_arm_compute_lib(mod, params)
+    mod.show()
