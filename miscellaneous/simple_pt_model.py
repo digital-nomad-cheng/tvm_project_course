@@ -8,7 +8,7 @@ class ConvBNReLU(nn.Module):
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self.conv = nn.Conv2d(3, 16, 3, 1, 1, bias=False)
+        self.conv = nn.Conv2d(3, 16, 3, 1, 1, bias=True)
         self.bn = nn.BatchNorm2d(16)
         self.relu = nn.ReLU(inplace=True)
         
