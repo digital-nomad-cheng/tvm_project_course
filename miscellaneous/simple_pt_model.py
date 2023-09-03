@@ -11,14 +11,16 @@ class ConvBNReLU(nn.Module):
         self.conv = nn.Conv2d(3, 16, 3, 1, 1, bias=True)
         self.bn = nn.BatchNorm2d(16)
         self.relu = nn.ReLU(inplace=True)
-        
+        self.fc = nn.Linear(16*64*64, 10)
+
         self.__init_weights()
 
     def forward(self, x):
         x = self.conv(x)
         x = self.bn(x)
         x = self.relu(x)
-
+        x = x.view(x.size(0), -1)
+        x = self.fc(x)
         return x
     
     def __init_weights(self):
@@ -28,6 +30,9 @@ class ConvBNReLU(nn.Module):
             elif isinstance(m, nn.BatchNorm2d):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.Linear):
+                m.weight.data.normal_(0, 0.01)
+                m.bias.data.zero_()
 
 torch.set_grad_enabled(False)
 input_shape = [1, 3, 64, 64]
