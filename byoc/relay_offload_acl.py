@@ -35,3 +35,10 @@ elif model_name == "simple":
     from tvm.relay.op.contrib.arm_compute_lib import partition_for_arm_compute_lib
     mod = partition_for_arm_compute_lib(mod, params)
     mod.show()
+    target = "llvm -mtriple=aarch64-linux-gnu -mattr=+neon"
+    with tvm.transform.PassContext(opt_level=3, disabled_pass=["AlterOpLayout"]):
+        lib = relay.build(mod, target=target)
+
+    lib_path = './lib_simple_acl.so'
+    cross_compile = 'aarch64-linux-gnu-g++'
+    lib.export_library(lib_path, cc=cross_compile)
