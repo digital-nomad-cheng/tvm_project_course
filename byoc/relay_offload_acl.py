@@ -30,6 +30,8 @@ elif model_name == "simple":
     onnx_model = onnx.load("/home/work/tvm_project_course/miscellaneous/simple_model.onnx")
     mod, params = relay.frontend.from_onnx(onnx_model)
     mod.show()
+    mod = tvm.relay.transform.ConvertLayout({"nn.conv2d": ["NHWC", "default"]})(mod)
+    mod.show()
     from tvm.relay.op.contrib.arm_compute_lib import partition_for_arm_compute_lib
     mod = partition_for_arm_compute_lib(mod, params)
     mod.show()
