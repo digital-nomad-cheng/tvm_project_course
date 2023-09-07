@@ -39,18 +39,24 @@ void inner_product_lowlevel(const ncnn::Mat& rgb, ncnn::Mat& out, bool use_bias=
     {
       pd.set(1, 0);// no bias_term
     }
-    pd.set(2, 3);// weight_data_size
+    pd.set(2, 3*6);// weight_data_size
 
     op->load_param(pd);
 
     // set weights
     ncnn::Mat weights[2];
-    weights[0].create(3);// weight_data
+    weights[0].create(3*6);// weight_data
     weights[1].create(3);// bias data
-
-    for (int i=0; i<3; i++)
+    // demo show how weight data is organized in memory
+    for (int j=0; j<3; j++) {
+        for (int i=0; i<6; i++)
+        {
+            weights[0][j * 6 + i] = 1.f / 6 + j * 1.f;
+        }
+    }
+    
+    for (int i=0; i<3; i++) 
     {
-        weights[0][i] = 1.f / 9;
         weights[1][i] = 1.f;
     }
 
@@ -74,7 +80,7 @@ int main(int argc, char **argv)
     // fill random
     for (int i = 0; i < input.total(); i++)
     {
-        input[i] = rand() % 10;
+        input[i] = 1.0; // rand() % 10;
     }
     
     ncnn::Mat out1;
