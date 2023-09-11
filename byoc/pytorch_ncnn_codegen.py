@@ -5,6 +5,8 @@ from tvm import relay
 from tvm.relay import transform, build
 from tvm.contrib import graph_executor
 import numpy as np 
+from tvm.relay.op.contrib.arm_compute_lib import preprocess_module
+
 
 class ConvBNReLUFC(nn.Module):
 
@@ -47,10 +49,10 @@ print("============== traced model from pytorch===============")
 mod.show()
 
 print("============== partition_for_ncnn ==========")
-mod = tvm.relay.op.contrib.ncnn.partition_for_ncnn(mod, params)
-mod.show()
 target = "llvm"
-with tvm.transform.PassContext(opt_level=3):
+with tvm.transform.PassContext(opt_level=3, disabled_pass=["AlterOpLayout"]):
+    mod = tvm.relay.op.contrib.ncnn.partition_for_ncnn(mod, params)
+    mod.show()
     lib = relay.build(mod, target=target, params=params)
 lib.export_library("simple_model_ncnn_codegen.so")
 print("Build graph executor...")
@@ -62,12 +64,14 @@ print(output)
 
 print("=================parition using arm_compute_lib API=============")
 from tvm.relay.op.contrib.arm_compute_lib import partition_for_arm_compute_lib
-mod, params = tvm.relay.frontend.from_pytorch(scripted_model, input_shapes)
-mod = partition_for_arm_compute_lib(mod, params)
-mod.show()
-target = "llvm"
 
-with tvm.transform.PassContext(opt_level=3):
+mod, params = tvm.relay.frontend.from_pytorch(scripted_model, input_shapes)
+
+
+target = "llvm"
+with tvm.transform.PassContext(opt_level=3,  disabled_pass=["AlterOpLayout"]):
+    mod = partition_for_arm_compute_lib(mod, params)
+    mod.show()
     lib = relay.build(mod, target=target, params=params)
 lib.export_library("simple_model_ncnn_codegen.so")
 
