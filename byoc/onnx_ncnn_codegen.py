@@ -4,68 +4,53 @@ from tvm import relay
 from tvm.relay import transform, build
 from tvm.contrib import graph_executor
 import numpy as np
+from tvm.relay.op.contrib.ncnn import partition_for_ncnn 
 
-numpy_input_tenosr = np.random.rand(1, 3, 64, 64)
+numpy_input_tensor = np.random.rand(1, 3, 64, 64)
 
+def build_lib(mod, params, codegen="default", target="llvm", verbose=True):
+    if codegen == "default":
+        print("Use default codegen...")
+    elif codegen == "ncnn":
+        print("Use ncnn codegen...")
+        if verbose:
+            mod["main"] = relay.build_module.bind_params_by_name(mod["main"], params)
+            print("============= model bind by params ==========")
+            mod.show()
+            mod = relay.transform.AnnotateTarget(["ncnn"])(mod)
+            print("============= model annotated by ncnn codgen ==========")
+            mod.show()
+            mod = relay.transform.PartitionGraph()(mod)
+            print("============= model with graph partitioned ============")
+            mod.show()
+        else:
+            with tvm.transform.PassContext(opt_level=3, disabled_pass=["AlterOpLayout"]):
+                mod = partition_for_ncnn(mod, params)
+            print("============= model paritioned using parition_for_ncnn ==========")
+            mod.show()
+    with tvm.transform.PassContext(opt_level=3):
+        lib = relay.build(mod, target=target, params=params)
+    return lib
+
+def run(lib, numpy_input_tensor):
+    print("Run with graph executor...")
+    rt_mod = graph_executor.GraphModule(lib["default"](tvm.cpu()))
+    rt_mod.set_input("input", tvm.nd.array(numpy_input_tensor.astype("float32")))
+    rt_mod.run()
+    output = rt_mod.get_output(0)
+    return output  
+            
 # load simple model composed of conv bn relu linear to tvm
 simple_model = onnx.load("/home/work/tvm_project_course/miscellaneous/simple_model_sim.onnx")
 mod, params = tvm.relay.frontend.from_onnx(simple_model)
 print("============== traced model from onnx==============")
 mod.show()
 
-mod["main"] = relay.build_module.bind_params_by_name(mod["main"], params)
-print("============= model bind by params ==========")
-mod.show()
+default_lib = build_lib(mod, params)
+ncnn_lib = build_lib(mod, params, codegen="ncnn", verbose=False)
 
-target="llvm"
-with tvm.transform.PassContext(opt_level=3):
-    lib = relay.build(mod, target=target, params=params)
-lib.export_library('simple_model_default_codegen.so')
+tvm_output = run(default_lib, numpy_input_tensor)
+print("tvm output is...\n", tvm_output)
+ncnn_output = run(ncnn_lib, numpy_input_tensor)
+print("ncnn output is...\n", ncnn_output)
 
-print("================Run inference with tvm default graph executor model...===========")
-
-print("Build graph executor...")
-m = graph_executor.GraphModule(lib["default"](tvm.cpu()))
-m.set_input("input", tvm.nd.array(numpy_input_tenosr.astype("float32")))
-m.run()
-output = m.get_output(0)
-print(output)
-
-mod = relay.transform.AnnotateTarget(["ncnn"])(mod)
-print("============= model annotated by ncnn codgen ==========")
-mod.show()
-mod = relay.transform.PartitionGraph()(mod)
-print("============= model with graph partitioned ============")
-mod.show()
-
-
-print("begin to export library...")
-target="llvm"
-with tvm.transform.PassContext(opt_level=3):
-    lib = relay.build(mod, target=target, params=params)
-lib.export_library('simple_model_ncnn_codegen.so')
-
-print("Load library from file...")
-lib = tvm.runtime.load_module("simple_model_ncnn_codegen.so")
-
-print("============Run inference with ncnn codegen model...================")
-print("Build graph executor...")
-m = graph_executor.GraphModule(lib["default"](tvm.cpu()))
-m.set_input("input", tvm.nd.array(numpy_input_tenosr.astype("float32")))
-m.run()
-output = m.get_output(0)
-print(output)
-
-#from tvm.relay.op.contrib.ncnn import partition_for_ncnn
-from tvm.relay.op.contrib.arm_compute_lib import partition_for_arm_compute_lib
-mod, params = tvm.relay.frontend.from_onnx(simple_model)
-#mod = partition_for_ncnn(mod, params)
-mod = partition_for_arm_compute_lib(mod, params)
-print("Use parition for ncnn api...")
-mod.show()
-
-print("begin to export library...")
-target="llvm"
-with tvm.transform.PassContext(opt_level=3):
-    lib = relay.build(mod, target=target, params=params)
-lib.export_library('simple_model_ncnn_codegen.so')
