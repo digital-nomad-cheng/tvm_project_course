@@ -32,6 +32,10 @@ def build_lib(mod, params, codegen="default", target="llvm", verbose=True):
         lib = relay.build(mod, target=target, params=params)
     return lib
 
+def export_lib(lib, codegen="default", model_name="simple"):
+    print("Export runtime library...")
+    lib.export_library("onnx_{}_{}_lib.so".format(codegen, model_name))
+
 def run(lib, numpy_input_tensor):
     print("Run with graph executor...")
     rt_mod = graph_executor.GraphModule(lib["default"](tvm.cpu()))
@@ -47,10 +51,15 @@ print("============== traced model from onnx==============")
 mod.show()
 
 default_lib = build_lib(mod, params)
+
 ncnn_lib = build_lib(mod, params, codegen="ncnn", verbose=False)
+export_lib(ncnn_lib, codegen="ncnn")
+
+print("Load runtime from library...")
+loaded_ncnn_lib = tvm.runtime.load_module("onnx_ncnn_simple_lib.so")
 
 tvm_output = run(default_lib, numpy_input_tensor)
 print("tvm output is...\n", tvm_output)
-ncnn_output = run(ncnn_lib, numpy_input_tensor)
+ncnn_output = run(loaded_ncnn_lib, numpy_input_tensor)
 print("ncnn output is...\n", ncnn_output)
 
