@@ -1,3 +1,5 @@
+import time 
+
 import onnx
 import tvm
 from tvm import relay
@@ -52,14 +54,24 @@ mod.show()
 
 default_lib = build_lib(mod, params)
 
-ncnn_lib = build_lib(mod, params, codegen="ncnn", verbose=False)
+ncnn_lib = build_lib(mod, params, codegen="ncnn", verbose=True)
 export_lib(ncnn_lib, codegen="ncnn")
 
 print("Load runtime from library...")
 loaded_ncnn_lib = tvm.runtime.load_module("onnx_ncnn_simple_lib.so")
-
 tvm_output = run(default_lib, numpy_input_tensor)
+t0 = time.time()
+for i in range(100):
+    tvm_output = run(default_lib, numpy_input_tensor)
+t1 = time.time()
+print("Total time using default tvm runtime is:", t1-t0)
 print("tvm output is...\n", tvm_output)
 ncnn_output = run(loaded_ncnn_lib, numpy_input_tensor)
+print("Run the runtime module for thesecond time...")
+t0 = time.time()
+for i in range(100):
+    ncnn_output = run(loaded_ncnn_lib, numpy_input_tensor)
+t1 = time.time()
+print("Total time using ncnn runtime is:", t1-t0)
 print("ncnn output is...\n", ncnn_output)
 
