@@ -12,10 +12,10 @@ class ConvBNReLUFC(nn.Module):
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self.conv = nn.Conv2d(3, 16, 3, 1, 1, bias=True)
-        self.bn = nn.BatchNorm2d(16)
+        self.conv = nn.Conv2d(3, 3, 3, 1, 1, bias=True)
+        self.bn = nn.BatchNorm2d(3)
         self.relu = nn.ReLU(inplace=True)
-        self.fc = nn.Linear(16*64*64, 10)
+        self.fc = nn.Linear(3*4*5, 10)
 
         self.__init_weights()
 
@@ -38,40 +38,41 @@ class ConvBNReLUFC(nn.Module):
                 m.weight.data.normal_(0, 0.01)
                 m.bias.data.zero_()
 
-numpy_input_tenosr = np.random.rand(1, 3, 64, 64)
-torch_input_tensor = torch.rand([1, 3, 64, 64]).float()
+if __name__ == "__main__":
+    numpy_input_tenosr = np.random.rand(1, 3, 64, 64)
+    torch_input_tensor = torch.rand([1, 3, 64, 64]).float()
 
-simple_model = ConvBNReLUFC().eval().float()
-scripted_model = torch.jit.trace(simple_model, torch_input_tensor)
-input_shapes = [("input", [1, 3, 64, 64])]
-mod, params = tvm.relay.frontend.from_pytorch(scripted_model, input_shapes)
-print("============== traced model from pytorch===============")
-mod.show()
-
-print("============== partition_for_ncnn ==========")
-target = "llvm"
-with tvm.transform.PassContext(opt_level=3, disabled_pass=["AlterOpLayout"]):
-    mod = tvm.relay.op.contrib.ncnn.partition_for_ncnn(mod, params)
+    simple_model = ConvBNReLUFC().eval().float()
+    scripted_model = torch.jit.trace(simple_model, torch_input_tensor)
+    input_shapes = [("input", [1, 3, 64, 64])]
+    mod, params = tvm.relay.frontend.from_pytorch(scripted_model, input_shapes)
+    print("============== traced model from pytorch===============")
     mod.show()
-    lib = relay.build(mod, target=target, params=params)
-lib.export_library("simple_model_ncnn_codegen.so")
-print("Build graph executor...")
-m = graph_executor.GraphModule(lib["default"](tvm.cpu()))
-m.set_input("input", tvm.nd.array(numpy_input_tenosr.astype("float32")))
-m.run()
-output = m.get_output(0)
-print(output)
 
-print("=================parition using arm_compute_lib API=============")
-from tvm.relay.op.contrib.arm_compute_lib import partition_for_arm_compute_lib
+    print("============== partition_for_ncnn ==========")
+    target = "llvm"
+    with tvm.transform.PassContext(opt_level=3, disabled_pass=["AlterOpLayout"]):
+        mod = tvm.relay.op.contrib.ncnn.partition_for_ncnn(mod, params)
+        mod.show()
+        lib = relay.build(mod, target=target, params=params)
+    lib.export_library("simple_model_ncnn_codegen.so")
+    print("Build graph executor...")
+    m = graph_executor.GraphModule(lib["default"](tvm.cpu()))
+    m.set_input("input", tvm.nd.array(numpy_input_tenosr.astype("float32")))
+    m.run()
+    output = m.get_output(0)
+    print(output)
 
-mod, params = tvm.relay.frontend.from_pytorch(scripted_model, input_shapes)
+    print("=================parition using arm_compute_lib API=============")
+    from tvm.relay.op.contrib.arm_compute_lib import partition_for_arm_compute_lib
+
+    mod, params = tvm.relay.frontend.from_pytorch(scripted_model, input_shapes)
 
 
-target = "llvm"
-with tvm.transform.PassContext(opt_level=3,  disabled_pass=["AlterOpLayout"]):
-    mod = partition_for_arm_compute_lib(mod, params)
-    mod.show()
-    lib = relay.build(mod, target=target, params=params)
-lib.export_library("simple_model_ncnn_codegen.so")
+    target = "llvm"
+    with tvm.transform.PassContext(opt_level=3,  disabled_pass=["AlterOpLayout"]):
+        mod = partition_for_arm_compute_lib(mod, params)
+        mod.show()
+        lib = relay.build(mod, target=target, params=params)
+    lib.export_library("simple_model_ncnn_codegen.so")
 

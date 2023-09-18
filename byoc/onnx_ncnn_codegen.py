@@ -10,8 +10,9 @@ import numpy as np
 from tvm.relay.op.contrib.ncnn import partition_for_ncnn 
 from pytorch_ncnn_codegen import ConvBNReLUFC 
 
-numpy_input_tensor = np.random.rand(1, 3, 64, 64)
-torch_input_tensor = torch.rand([1, 3, 64, 64]).float()
+np.random.seed(10)
+numpy_input_tensor = np.random.rand(1, 3, 4, 5)
+torch_input_tensor = torch.rand([1, 3, 4, 5]).float()
 
 def parse_model(source="onnx"):
     # load simple model composed of conv bn relu linear to tvm
@@ -23,7 +24,7 @@ def parse_model(source="onnx"):
     else:
         simple_model = ConvBNReLUFC().eval().float()
         scripted_model = torch.jit.trace(simple_model, torch_input_tensor)
-        input_shapes = [("input", [1, 3, 64, 64])]
+        input_shapes = [("input", [1, 3, 4, 5])]
         mod, params = tvm.relay.frontend.from_pytorch(scripted_model, input_shapes)
         print("============== traced model from pytorch===============")
         mod.show()
@@ -76,7 +77,7 @@ loaded_ncnn_lib = tvm.runtime.load_module("onnx_ncnn_simple_lib.so")
 tvm_output = run(default_lib, numpy_input_tensor)
 print("Run with default graph executor...")
 t0 = time.time()
-for i in range(100):
+for i in range(1):
     tvm_output = run(default_lib, numpy_input_tensor)
 t1 = time.time()
 print("Total time using default tvm runtime is:", t1-t0)
@@ -85,7 +86,7 @@ ncnn_output = run(loaded_ncnn_lib, numpy_input_tensor)
 print("Run the runtime module for thesecond time...")
 print("Run with ncnn graph executor...")
 t0 = time.time()
-for i in range(100):
+for i in range(1):
     ncnn_output = run(loaded_ncnn_lib, numpy_input_tensor)
 t1 = time.time()
 print("Total time using ncnn runtime is:", t1-t0)
