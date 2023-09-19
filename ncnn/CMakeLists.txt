@@ -13,3 +13,7 @@ target_link_libraries(conv_demo ncnn)
 add_executable(inner_product_demo inner_product_low_level_demo.cpp)
 
 target_link_libraries(inner_product_demo ncnn)
+
+add_executable(reshape_low_level_demo reshape_low_level_demo.cpp)
+
+target_link_libraries(reshape_low_level_demo ncnn)

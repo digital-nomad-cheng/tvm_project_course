@@ -48,6 +48,9 @@ scripted_model = torch.jit.trace(pt_model, input_data)
 mod, params = relay.frontend.from_pytorch(scripted_model, input_shapes)
 print("mod before optimizing...")
 print(mod["main"])
+mod, params = relay.frontend.from_onnx(onnx_model)
+print("mod before optimizing from onnx..")
+print(mod["main"])
 
 seq = tvm.transform.Sequential(
         [
