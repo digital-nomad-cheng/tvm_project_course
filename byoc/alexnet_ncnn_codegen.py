@@ -16,8 +16,6 @@ from tvm.relay.op.contrib.ncnn import partition_for_ncnn
 from tvm.relay.op.contrib.arm_compute_lib import partition_for_arm_compute_lib
 from tvm.relay.build_module import bind_params_by_name
 
-from alexnet import AlexNet 
-
 def extract_byoc_modules(module, codegen="ncnn"):
     """Get the BYOC module(s) from llvm module."""
     print("Extract BYOC modules from runtime...")
@@ -73,14 +71,13 @@ def run(lib, numpy_input_tensor, codegen="default"):
 
 def dump_module_to_json(modules):
     print("Dump json to files...")
-    for mod in modules:
-        source = mod.get_source("json")
-        codegen = json.loads(source)["nodes"]
-        codegen_str = json.dumps(codegen, sort_keys=True, indent=2)
-        with open('./tmp/ncnn_modules_readable.json', 'w') as outfile:
-            outfile.write(json.dumps(codegen, sort_keys=True, indent=2))
-        with open('./tmp/ncnn_modules.json', 'w') as outfile:
-            json.dump(codegen, outfile)
+    with open('./tmp/ncnn_modules.json', 'w') as outfile, \
+            open('./tmp/ncnn_modules_readable.json', 'w') as readable_outfile:
+        for mod in modules:
+            source = mod.get_source("json")
+            node_info = json.loads(source)["nodes"]
+            readable_outfile.write(json.dumps(node_info, sort_keys=True, indent=2))
+            json.dump(node_info, outfile)
 
 if __name__ == "__main__":
     numpy_input_tensor = np.random.rand(1, 3, 227, 227)
