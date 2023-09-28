@@ -84,17 +84,36 @@ if __name__ == "__main__":
     scripted_model = load_pretrained_model()
     mod, params  = import_pytorch_to_relay(scripted_model, input_name="input")
     tvm_lib = build_mnv2_lib(mod, params)
-    # tvm_lib.export_library("alexnet_tvm_lib.so")
-    # tvm_lib = tvm.runtime.load_module("/home/work/tvm_project_course/byoc/alexnet_tvm_lib.so")
+    tvm_lib.export_library("alexnet_tvm_lib.so")
+    tvm_lib = tvm.runtime.load_module("/home/work/tvm_project_course/byoc/alexnet_tvm_lib.so")
     t0 = time.time()
     ncnn_lib = build_mnv2_lib(mod, params, codegen="ncnn")
-    ncnn_modules = extract_byoc_modules(ncnn_lib)
-
-    dump_module_to_json(ncnn_modules) 
-
     t1 = time.time()
     print("Time for build runtime library using ncnn codegen for mnv2 is:", t1-t0)
+    
+    ncnn_modules = extract_byoc_modules(ncnn_lib)
+    dump_module_to_json(ncnn_modules) 
+
     tvm_output = run(tvm_lib, numpy_input_tensor)
     ncnn_output = run(ncnn_lib, numpy_input_tensor, codegen="ncnn")
     print("tvm output is...\n", tvm_output.numpy()[0, :5])
     print("ncnn output is...\n", ncnn_output.numpy()[0, :5])
+
+    benchmark = True 
+    if benchmark:
+        t0 = time.time()
+        for i in range(100):
+            tvm_output = run(tvm_lib, numpy_input_tensor)
+        t1 = time.time()
+        tvm_default_time  = t1 - t0
+
+        t0 = time.time()
+        for i in range(100):
+            ncnn_output = run(ncnn_lib, numpy_input_tensor, codegen="ncnn")
+        t1 = time.time()
+        ncnn_time = t1 - t0
+
+        print("total time for tvm default runtime: ", tvm_default_time)
+        print("total time for ncnn default runtime: ", ncnn_time)
+
+
