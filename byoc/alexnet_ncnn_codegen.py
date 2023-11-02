@@ -1,3 +1,4 @@
+import os
 import time 
 import json
 
@@ -71,6 +72,7 @@ def run(lib, numpy_input_tensor, codegen="default"):
 
 def dump_module_to_json(modules):
     print("Dump json to files...")
+    os.mkdir("./tmp")
     with open('./tmp/ncnn_modules.json', 'w') as outfile, \
             open('./tmp/ncnn_modules_readable.json', 'w') as readable_outfile:
         for mod in modules:
@@ -85,7 +87,7 @@ if __name__ == "__main__":
     mod, params  = import_pytorch_to_relay(scripted_model, input_name="input")
     tvm_lib = build_mnv2_lib(mod, params)
     tvm_lib.export_library("alexnet_tvm_lib.so")
-    tvm_lib = tvm.runtime.load_module("/home/work/tvm_project_course/byoc/alexnet_tvm_lib.so")
+    tvm_lib = tvm.runtime.load_module("/home/tvm_project_course/byoc/alexnet_tvm_lib.so")
     t0 = time.time()
     ncnn_lib = build_mnv2_lib(mod, params, codegen="ncnn")
     t1 = time.time()
@@ -99,7 +101,7 @@ if __name__ == "__main__":
     print("tvm output is...\n", tvm_output.numpy()[0, :5])
     print("ncnn output is...\n", ncnn_output.numpy()[0, :5])
 
-    benchmark = True 
+    benchmark = True
     if benchmark:
         t0 = time.time()
         for i in range(100):
